@@ -1,21 +1,18 @@
-# Downloader_Final.py
-
-import cloudscraper
 import os
 import time
 import re
 import requests
 import base64
+import cloudscraper
 
 # --- Importações para o Selenium ---
-from selenium import webdriver
-from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-from webdriver_manager.chrome import ChromeDriverManager
-# Importação necessária para a condição de espera personalizada
 from selenium.common.exceptions import StaleElementReferenceException
+
+# --- Importação para evitar a detecção do Selenium ---
+import undetected_chromedriver as uc
 
 
 # ==============================================================================
@@ -45,21 +42,51 @@ def sanitize_foldername(name):
     """Remove caracteres inválidos de um nome de arquivo/pasta."""
     return re.sub(r'[\\/*?:"<>|]', "", name).strip()
 
+# ==============================================================================
+# FUNÇÃO FINAL PARA CONTORNAR A DETECÇÃO
+# ==============================================================================
 def setup_selenium_driver():
-    """Configura e retorna uma instância do driver do Selenium."""
-    print("Iniciando o navegador (Selenium)...")
-    options = webdriver.ChromeOptions()
+    """
+    Configura e retorna uma instância do driver com injeção de script
+    para neutralizar e travar a proteção anti-bot.
+    """
+    print("Iniciando o navegador")
+    
+    options = uc.ChromeOptions()
     options.add_argument('--headless')
     options.add_argument('--log-level=3')
-    options.add_experimental_option('excludeSwitches', ['enable-logging'])
-    service = Service(ChromeDriverManager().install())
-    driver = webdriver.Chrome(service=service, options=options)
+
+    try:
+        driver = uc.Chrome(options=options, use_subprocess=True)
+        
+        driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {
+            "source": """
+                const originalSetInterval = window.setInterval;
+                window.setInterval = (handler, timeout, ...args) => {
+                    const handlerStr = handler.toString();
+                    if (handlerStr.includes('isSuspend') && handlerStr.includes('detect')) {
+                        // Bloqueia o timer do disable-devtool
+                        console.log('Timer do DisableDevtool bloqueado.');
+                        return null;
+                    }
+                    // Permite que outros timers funcionem
+                    return originalSetInterval(handler, timeout, ...args);
+                };
+            """
+        })
+
+    except Exception as e:
+        print(f"!!! ERRO ao iniciar o undetected-chromedriver: {e}")
+        print("!!! Verifique se o Google Chrome está instalado e tente novamente.")
+        return None
+        
     return driver
+# ==============================================================================
+
 
 def download_image_with_selenium(driver, image_url, save_path):
     """
-    Usa o Selenium para baixar uma imagem executando um script JavaScript,
-    o que contorna proteções anti-bot como Cloudflare.
+    Usa o Selenium para baixar uma imagem executando um script JavaScript.
     """
     try:
         js_script = """
@@ -173,7 +200,7 @@ def baixar_capitulo_api(chapter_id, scraper_session, base_path):
         return 0, 1
 
 # ==============================================================================
-# SEÇÃO 3: MÓDULO DO SITE MangaLivre.tv (Selenium com "Mostrar Mais")
+# SEÇÃO 3: MÓDULO DO SITE MangaLivre.tv
 # ==============================================================================
 
 def obter_dados_obra_selenium(obra_url, driver):
@@ -265,14 +292,13 @@ def baixar_capitulo_selenium(chapter_info, driver, base_path):
         return 0, 1
 
 # ==============================================================================
-# SEÇÃO 4: MÓDULO DO SITE SakuraMangas.org (Selenium com Rolagem e "Ver Mais")
+# SEÇÃO 4: MÓDULO DO SITE SakuraMangas.org
 # ==============================================================================
 
 def obter_dados_obra_sakura(obra_url, driver):
     """
     Abre a URL da obra no SakuraMangas, clica no botão "Ver mais" até o fim,
     e então extrai o título e a lista completa de capítulos.
-    Usa uma espera dinâmica para maior robustez.
     """
     print(f"Buscando informações da obra em: {obra_url}")
     obra_nome = ""
@@ -281,7 +307,8 @@ def obter_dados_obra_sakura(obra_url, driver):
         
         seletor_titulo = 'h1.h1-titulo'
         print("    -> Aguardando título da obra ficar visível...")
-        titulo_element = WebDriverWait(driver, 10).until(
+        # Aumentado o tempo de espera para 15s para dar margem a conexões mais lentas
+        titulo_element = WebDriverWait(driver, 15).until(
             EC.visibility_of_element_located((By.CSS_SELECTOR, seletor_titulo))
         )
         obra_nome = titulo_element.text.strip()
@@ -354,13 +381,13 @@ def baixar_capitulo_scroll(chapter_info, driver, base_path):
     try:
         print(f"  Acessando página do capítulo {chapter_number}...")
         driver.get(chapter_url)
-        time.sleep(2)
+        time.sleep(5)
 
         if not SAKURA_MODE_SET:
             try:
                 print("    -> Verificando o modo de leitura...")
                 scroll_mode_button = WebDriverWait(driver, 5).until(
-                    EC.element_to_be_clickable((By.CSS_SELECTOR, 'span.div-scroll'))
+                    EC.element_to_be_clickable((By.CSS_SELECTOR, 'span.div-modo div-scroll'))
                 )
                 scroll_mode_button.click()
                 print("    -> Modo de leitura alterado para Scroll.")
@@ -370,7 +397,7 @@ def baixar_capitulo_scroll(chapter_info, driver, base_path):
                 print("    -> Não foi possível clicar no botão de modo Scroll (pode já estar ativo ou não existir).")
 
         print("    -> Rolando para carregar todas as imagens...")
-        scroll_pause_time = 1
+        scroll_pause_time = 2
         screen_height = driver.execute_script("return window.screen.height;")
         i = 1
         
@@ -457,6 +484,11 @@ def main():
             obra_nome_original, lista_de_capitulos = obter_dados_obra_sakura(obra_url, driver_selenium)
         else:
             print("URL de um site não suportado. Tente novamente."); continue
+        
+        if site_handler in ["selenium", "selenium_scroll"] and driver_selenium is None:
+            print("Não foi possível iniciar o navegador. Pulando para a próxima URL.")
+            continue
+            
         if not lista_de_capitulos: 
             print("Não foi possível obter a lista de capítulos. Pulando para a próxima URL.")
             continue
