@@ -1,5 +1,7 @@
 # Manga Downloader
 
+## Readme Desatualizado
+
 ## 📖 O que este programa faz?
 
 **Manga Downloader** é uma ferramenta de linha de comando que automatiza o download de capítulos de mangás e webtoons diretamente de sites suportados. Você fornece a URL da página principal da obra, e o programa baixa as imagens, organizando-as em pastas por capítulo.
