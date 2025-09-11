@@ -65,13 +65,17 @@ def baixar_capitulo_sussy_bloqueado(chapter_info, scraper_session, base_path):
     images_downloaded = 0
     total_images = 0 # Não sabemos o total, então contamos enquanto baixamos
 
-    # Formata o número do capítulo para a URL (substitui '.' por '_')
-    chapter_url_part = str(chapter_number).replace('.', '_')
+    # --- CORREÇÃO APLICADA AQUI ---
+    # Formata o número do capítulo para a URL corretamente
+    if s_chapter_number.endswith('.0'):
+        chapter_url_part = s_chapter_number[:-2] # Remove o ".0" para números inteiros
+    else:
+        chapter_url_part = s_chapter_number.replace('.', '_')
     
     base_url = f"https://cdn.sussytoons.site/scans/1/obras/{obra_id}/capitulos/{chapter_url_part}/"
     
     # Ordem de tentativa dos formatos
-    formats = ["{:02d}.jpg", "{:02d}-optimized.jpg", "{:02d}.webp"]
+    formats = ["{:02d}.jpg", "{:02d}-optimized.jpg", "{:02d}.webp", "{:02d}.png"] # Adicionado .png por segurança
     
     page_index = 0
     active_format = None
@@ -122,9 +126,14 @@ def baixar_capitulo_sussy_bloqueado(chapter_info, scraper_session, base_path):
             
         page_index += 1
 
+    # --- MENSAGEM DE DEBUG ADICIONADA ---
+    if images_downloaded == 0:
+        print(f"  [!] Nenhuma imagem foi encontrada para o capítulo {chapter_number} com as URLs testadas.")
+        print(f"      -> URL base testada: {base_url}")
+
     total_images = images_downloaded # O total é o que conseguimos baixar
     print(f"\n  Capítulo {chapter_number}: {images_downloaded}/{total_images} imagens baixadas com sucesso.")
-    return images_downloaded, 0 # Retorna 0 falhas pois não sabemos o total real
+    return images_downloaded, 0
 
 def baixar_capitulo_sussy_selenium(chapter_info, driver, base_path):
     """Navega para a página de um capítulo do SussyToons com Selenium e baixa as imagens."""
@@ -203,4 +212,5 @@ def baixar_capitulo_sussy_selenium(chapter_info, driver, base_path):
         return images_downloaded, total_images - images_downloaded
     except Exception as e:
         print(f"  Ocorreu um erro geral ao processar o capítulo {chapter_number} com Selenium: {e}")
+
         return 0, 1
