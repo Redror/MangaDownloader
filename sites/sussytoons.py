@@ -99,7 +99,9 @@ def baixar_capitulo_sussy_api(chapter_info, scraper_session, base_path):
                         img_url = f"https://cdn.sussytoons.site/wp-content/uploads/WP-manga/data{img_src}"
                     else:
                         # FORMATO NOVO
-                        img_url = f"https://cdn.sussytoons.site{img_path}/{img_src}"
+                        base_url = "https://cdn.sussytoons.site"
+                        clean_path = img_path.strip('/')
+                        img_url = f"{base_url}/{clean_path}/{img_src}"
                     
                     img_url = img_url.replace('//', '/').replace(':/', '://')
 
@@ -175,4 +177,5 @@ def baixar_capitulo_sussy_api(chapter_info, scraper_session, base_path):
 
         total_images = images_downloaded
         print(f"\n  Capítulo {chapter_number}: {images_downloaded}/{total_images} imagens baixadas (via adivinhação).")
+
         return images_downloaded, 0
