@@ -10,7 +10,7 @@ from conversor import criar_pdf_de_imagens, criar_cbz_de_imagens
 from helpers import sanitize_foldername
 
 # --- Importa os módulos de cada site ---
-from sites import sussytoons, mangalivre, sakuramangas, comick, manhastro, loverstoon
+from sites import sussytoons, mangalivre, sakuramangas, comick, manhastro, loverstoon, mediocretoons
 
 # ==============================================================================
 # SEÇÃO PRINCIPAL (ROTEADOR)
@@ -64,6 +64,9 @@ def main():
             driver_selenium = setup_selenium_driver(run_headless=use_headless_mode)
             if driver_selenium:
                 obra_nome_original, lista_de_capitulos = loverstoon.obter_dados_obra_loverstoon(obra_url, driver_selenium)
+        elif "mediocretoons.com" in obra_url:
+            site_handler = "mediocre_api"
+            obra_nome_original, lista_de_capitulos = mediocretoons.obter_dados_obra_mediocre(obra_url, scraper)
         else:
             print("URL de um site não suportado. Tente novamente.")
             continue
@@ -174,6 +177,8 @@ def main():
             if site_handler == "sussy_api":
                 # Agora chama a nova função que usa a API e passa o scraper
                 sucessos, falhas = sussytoons.baixar_capitulo_sussy_api(cap_info, scraper, obra_folder_name)
+            elif site_handler == "mediocre_api":
+                sucessos, falhas = mediocretoons.baixar_capitulo_mediocre(cap_info, scraper, obra_folder_name)
             else: # Para todos os outros sites que usam Selenium
                 sucessos, falhas = {
                     "mangalivre_selenium": mangalivre.baixar_capitulo_selenium,
@@ -223,4 +228,5 @@ def main():
             driver_selenium = None
 
 if __name__ == "__main__":
+
     main()
