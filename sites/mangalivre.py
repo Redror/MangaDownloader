@@ -15,7 +15,7 @@ def obter_dados_obra_selenium(obra_url, driver):
     print(f"Buscando informações da obra em: {obra_url}")
     try:
         driver.get(obra_url)
-        
+        driver.minimize_window()
         # 1. Espera pelo título e o extrai
         seletor_titulo = 'div.post-title h1'
         titulo_element = WebDriverWait(driver, 15).until(

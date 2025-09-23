@@ -1,16 +1,50 @@
 import os
 import time
 import re
+import requests
 
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import StaleElementReferenceException
 
-from helpers import download_image_with_selenium
+# -- INÍCIO: Funções de outros módulos adicionadas aqui para autonomia --
 
-# Variável para controlar o clique no modo de leitura do SakuraMangas
-SAKURA_MODE_SET = False
+def download_image_with_session(driver, image_url, save_path):
+    """
+    Baixa a imagem usando a sessão de cookies e o User-Agent do driver para parecer um navegador real.
+    """
+    try:
+        session = requests.Session()
+        
+        # Copia os cookies do driver para a sessão
+        for cookie in driver.get_cookies():
+            session.cookies.set(cookie['name'], cookie['value'], domain=cookie['domain'])
+        
+        # PONTO CHAVE: Obtém o User-Agent do navegador e o adiciona aos headers
+        user_agent = driver.execute_script("return navigator.userAgent;")
+        session.headers.update({
+            'Referer': driver.current_url,
+            'User-Agent': user_agent
+        })
+        
+        response = session.get(image_url, stream=True, timeout=15)
+        
+        if response.status_code == 200:
+            with open(save_path, 'wb') as f:
+                for chunk in response.iter_content(chunk_size=8192):
+                    f.write(chunk)
+            return True
+        else:
+            # Adiciona um print para ajudar a identificar o problema, se persistir
+            print(f"      -> Falha no download, status: {response.status_code}")
+            return False
+    except requests.exceptions.RequestException:
+        # Silencia o erro de request para não poluir o terminal, a falha já será contada
+        return False
+
+# -- FIM: Funções de outros módulos --
+
 
 class number_of_elements_is_greater_than(object):
     """
@@ -40,9 +74,10 @@ def obter_dados_obra_sakura(obra_url, driver):
         
         seletor_titulo = 'h1.h1-titulo'
         print("    -> Aguardando título da obra ficar visível...")
-        titulo_element = WebDriverWait(driver, 15).until(
+        titulo_element = WebDriverWait(driver, 30).until(
             EC.visibility_of_element_located((By.CSS_SELECTOR, seletor_titulo))
         )
+        driver.minimize_window()
         obra_nome = titulo_element.text.strip()
         print(f"    -> Título encontrado: '{obra_nome}'")
         
@@ -91,100 +126,77 @@ def obter_dados_obra_sakura(obra_url, driver):
 
 def baixar_capitulo_sakura(chapter_info, driver, base_path):
     """
-    Baixa um capítulo do SakuraMangas, lidando com "Infinite Scroll", "Lazy Loading",
-    e transferindo cookies para evitar o erro 403 Forbidden.
+    Baixa um capítulo do SakuraMangas usando a lógica de adivinhação de URL.
     """
-    global SAKURA_MODE_SET
     chapter_url = chapter_info['cap_url']
     chapter_number = chapter_info['cap_numero']
     
+    # Formata o nome da pasta do capítulo
     s_chapter_number = str(chapter_number)
     if '.' in s_chapter_number:
         parts = s_chapter_number.split('.')
         integer_part, fractional_part = parts[0], parts[1]
-        if fractional_part == '0': formatted_number = integer_part.zfill(2)
-        else: formatted_number = f"{integer_part.zfill(2)}.{fractional_part}"
-    else: formatted_number = s_chapter_number.zfill(2)
+        formatted_number = f"{integer_part.zfill(2)}.{fractional_part}" if fractional_part != '0' else integer_part.zfill(2)
+    else:
+        formatted_number = s_chapter_number.zfill(2)
     chapter_folder_name = f"Capítulo {formatted_number}"
     
     chapter_path = os.path.join(base_path, chapter_folder_name)
     os.makedirs(chapter_path, exist_ok=True)
     
     try:
-        print(f"  Acessando página do capítulo {chapter_number}...")
+        print(f"  Acessando página do capítulo {chapter_number} para obter link base...")
         driver.get(chapter_url)
-        time.sleep(5)
-
-        if not SAKURA_MODE_SET:
-            try:
-                print("    -> Verificando o modo de leitura...")
-                scroll_mode_button = WebDriverWait(driver, 5).until(
-                    EC.presence_of_element_located((By.CSS_SELECTOR, 'span.div-modo.div-scroll'))
-                )
-                
-                # --- LÓGICA DE VERIFICAÇÃO DE ESTILO ADICIONADA ---
-                style_attribute = scroll_mode_button.get_attribute('style')
-                if "rgb(255, 160, 226)" in style_attribute:
-                    print("    -> Modo Scroll já está ativo.")
-                    SAKURA_MODE_SET = True
-                else:
-                    scroll_mode_button.click()
-                    print("    -> Modo de leitura alterado para Scroll.")
-                    SAKURA_MODE_SET = True
-                    time.sleep(2)
-            except Exception:
-                print("    -> Não foi possível encontrar o botão de modo Scroll (pode não existir).")
-
-        print("    -> Rolando para carregar todas as imagens...")
-        scroll_pause_time = 1
-        screen_height = driver.execute_script("return window.screen.height;")
-        i = 1
         
-        while True:
-            driver.execute_script(f"window.scrollTo(0, {screen_height * i});")
-            i += 1
-            time.sleep(scroll_pause_time)
-            scroll_height = driver.execute_script("return document.body.scrollHeight;")
-            if (screen_height * (i-1)) > scroll_height:
-                print("    -> Fim da página alcançado.")
-                break
+        # Pega a URL da primeira imagem para extrair o HASH
+        seletor_primeira_imagem = '#paginas .pag-item:first-child img'
+        primeira_imagem = WebDriverWait(driver, 15).until(
+            EC.presence_of_element_located((By.CSS_SELECTOR, seletor_primeira_imagem))
+        )
+        url_primeira_imagem = primeira_imagem.get_attribute('data-src') or primeira_imagem.get_attribute('src')
         
-        seletor_imagens = '#paginas .pag-item img'
-        paginas_elements = driver.find_elements(By.CSS_SELECTOR, seletor_imagens)
-        
-        if not paginas_elements:
-            print(f"  Nenhuma imagem encontrada para o capítulo {chapter_number}.")
-            return 0, 0
+        # Extrai o hash da URL (ex: '9300128ea653220849639311528eefc2')
+        match = re.search(r'/imagens/([a-f0-9]+)/', url_primeira_imagem)
+        if not match:
+            print("  [!] Não foi possível extrair o hash da URL da imagem. O padrão pode ter mudado.")
+            return 0, 1
             
-        print(f"  Encontradas {len(paginas_elements)} imagens. Iniciando download via Navegador...")
+        image_hash = match.group(1)
+        print(f"    -> Hash do capítulo encontrado: {image_hash}")
         
         images_downloaded = 0
-        total_images = len(paginas_elements)
-        
-        for i, pagina_element in enumerate(paginas_elements):
-            try:
-                img_url = pagina_element.get_attribute('data-src') or pagina_element.get_attribute('src')
-                if not img_url or not img_url.strip():
-                    print(f"\n    -> URL da imagem {i+1} está vazia. Pulando.")
-                    continue
-                img_url = img_url.strip()
-                _, extension = os.path.splitext(img_url.split('?')[0])
-                if not extension: extension = '.jpg'
-                filename = f"{str(i + 1).zfill(2)}{extension}"
-                filepath = os.path.join(chapter_path, filename)
-                
-                success = download_image_with_selenium(driver, img_url, filepath)
-                if success:
-                    images_downloaded += 1
-                
-                time.sleep(0.2)
+        consecutive_failures = 0
+        page_index = 1
 
-            except Exception as e:
-                print(f"\n    -> Erro no loop de download para a imagem {i+1} de '{img_url}': {e}")
-        
+        print(f"  Iniciando download sequencial para o capítulo {chapter_number}...")
+        while consecutive_failures < 3: # Para após 3 falhas seguidas
+            # Monta a URL (ex: https://sakuramangas.org/imagens/HASH/001.jpg)
+            page_number_str = str(page_index).zfill(3)
+            img_url = f"https://sakuramangas.org/imagens/{image_hash}/{page_number_str}.jpg"
+            
+            filename = f"{str(page_index).zfill(3)}.jpg"
+            filepath = os.path.join(chapter_path, filename)
+            
+            # Tenta baixar a imagem
+            success = download_image_with_session(driver, img_url, filepath)
+            
+            if success:
+                images_downloaded += 1
+                consecutive_failures = 0 # Reseta o contador de falhas
+            else:
+                consecutive_failures += 1
+            
+            page_index += 1
+            time.sleep(0.2) # Pequena pausa para não sobrecarregar o servidor
+
+        if images_downloaded == 0:
+            print(f"  [!] Nenhuma imagem foi encontrada para o capítulo {chapter_number} com este método.")
+            return 0, 1
+
+        total_images = images_downloaded
         print(f"\n  Capítulo {chapter_number}: {images_downloaded}/{total_images} imagens baixadas com sucesso.")
-        return images_downloaded, total_images - images_downloaded
+        return images_downloaded, 0
 
     except Exception as e:
-        print(f"  Ocorreu um erro geral ao processar o capítulo {chapter_number} com Selenium: {e}")
+        print(f"  Ocorreu um erro geral ao processar o capítulo {chapter_number}: {e}")
         return 0, 1

@@ -10,7 +10,7 @@ from conversor import criar_pdf_de_imagens, criar_cbz_de_imagens
 from helpers import sanitize_foldername
 
 # --- Importa os módulos de cada site ---
-from sites import sussytoons, mangalivre, sakuramangas, comick, manhastro, loverstoon, mediocretoons
+from sites import sussytoons, mangalivre, sakuramangas, manhastro, loverstoon, mediocretoons
 
 # ==============================================================================
 # SEÇÃO PRINCIPAL (ROTEADOR)
@@ -31,7 +31,7 @@ def main():
         site_handler = ""
         
         # Define se o navegador deve ser visível (headless=False) ou invisível (headless=True)
-        is_problematic_site = "comick.io" in obra_url or "manhastro.net" in obra_url or "loverstoon.com" in obra_url
+        is_problematic_site = "manhastro.net" in obra_url or "loverstoon.com" in obra_url or "sakuramangas.org" in obra_url or "mangalivre.tv" in obra_url
         use_headless_mode = not is_problematic_site
         
         # Lógica para identificar o site e obter os dados da obra
@@ -49,11 +49,6 @@ def main():
             driver_selenium = setup_selenium_driver(run_headless=use_headless_mode)
             if driver_selenium:
                 obra_nome_original, lista_de_capitulos = sakuramangas.obter_dados_obra_sakura(obra_url, driver_selenium)
-        elif "comick.io" in obra_url:
-            site_handler = "comick_selenium"
-            driver_selenium = setup_selenium_driver(run_headless=use_headless_mode)
-            if driver_selenium:
-                obra_nome_original, lista_de_capitulos = comick.obter_dados_obra_comick(obra_url, driver_selenium)
         elif "manhastro.net" in obra_url:
             site_handler = "manhastro_selenium"
             driver_selenium = setup_selenium_driver(run_headless=use_headless_mode)
@@ -183,7 +178,6 @@ def main():
                 sucessos, falhas = {
                     "mangalivre_selenium": mangalivre.baixar_capitulo_selenium,
                     "sakura_selenium": sakuramangas.baixar_capitulo_sakura,
-                    "comick_selenium": comick.baixar_capitulo_comick,
                     "manhastro_selenium": manhastro.baixar_capitulo_manhastro,
                     "loverstoon_selenium": loverstoon.baixar_capitulo_loverstoon,
                 }[site_handler](cap_info, driver_selenium, obra_folder_name)
