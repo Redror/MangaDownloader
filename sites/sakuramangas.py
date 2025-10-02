@@ -1,56 +1,18 @@
 import os
 import time
 import re
-import requests
+import json
+from natsort import natsorted
 
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-from selenium.common.exceptions import StaleElementReferenceException
+from selenium.common.exceptions import StaleElementReferenceException, TimeoutException
 
-# -- INÍCIO: Funções de outros módulos adicionadas aqui para autonomia --
-
-def download_image_with_session(driver, image_url, save_path):
-    """
-    Baixa a imagem usando a sessão de cookies e o User-Agent do driver para parecer um navegador real.
-    """
-    try:
-        session = requests.Session()
-        
-        # Copia os cookies do driver para a sessão
-        for cookie in driver.get_cookies():
-            session.cookies.set(cookie['name'], cookie['value'], domain=cookie['domain'])
-        
-        # PONTO CHAVE: Obtém o User-Agent do navegador e o adiciona aos headers
-        user_agent = driver.execute_script("return navigator.userAgent;")
-        session.headers.update({
-            'Referer': driver.current_url,
-            'User-Agent': user_agent
-        })
-        
-        response = session.get(image_url, stream=True, timeout=15)
-        
-        if response.status_code == 200:
-            with open(save_path, 'wb') as f:
-                for chunk in response.iter_content(chunk_size=8192):
-                    f.write(chunk)
-            return True
-        else:
-            # Adiciona um print para ajudar a identificar o problema, se persistir
-            print(f"      -> Falha no download, status: {response.status_code}")
-            return False
-    except requests.exceptions.RequestException:
-        # Silencia o erro de request para não poluir o terminal, a falha já será contada
-        return False
-
-# -- FIM: Funções de outros módulos --
-
+# Importa a nova função de download diretamente do helpers
+from helpers import download_image_with_selenium
 
 class number_of_elements_is_greater_than(object):
-    """
-    Uma condição de espera do Selenium para verificar se o número de elementos
-    encontrados é maior que um número X.
-    """
     def __init__(self, locator, count):
         self.locator = locator
         self.count = count
@@ -126,7 +88,8 @@ def obter_dados_obra_sakura(obra_url, driver):
 
 def baixar_capitulo_sakura(chapter_info, driver, base_path):
     """
-    Baixa um capítulo do SakuraMangas usando a lógica de adivinhação de URL.
+    Baixa um capítulo do SakuraMangas combinando a captura de rede com um loop de
+    adivinhação para garantir que todas as imagens sejam baixadas.
     """
     chapter_url = chapter_info['cap_url']
     chapter_number = chapter_info['cap_numero']
@@ -145,57 +108,75 @@ def baixar_capitulo_sakura(chapter_info, driver, base_path):
     os.makedirs(chapter_path, exist_ok=True)
     
     try:
-        print(f"  Acessando página do capítulo {chapter_number} para obter link base...")
+        print(f"  Acessando página do capítulo {chapter_number} e monitorando a rede...")
+        driver.get_log('performance')
         driver.get(chapter_url)
+        time.sleep(5) 
+
+        logs = driver.get_log('performance')
         
-        # Pega a URL da primeira imagem para extrair o HASH
-        seletor_primeira_imagem = '#paginas .pag-item:first-child img'
-        primeira_imagem = WebDriverWait(driver, 15).until(
-            EC.presence_of_element_located((By.CSS_SELECTOR, seletor_primeira_imagem))
-        )
-        url_primeira_imagem = primeira_imagem.get_attribute('data-src') or primeira_imagem.get_attribute('src')
+        urls_encontradas = []
+        for entry in logs:
+            log = json.loads(entry['message'])['message']
+            if 'Network.responseReceived' == log['method']:
+                url = log['params']['response']['url']
+                if 'sakuramangas.org/imagens/' in url:
+                    urls_encontradas.append(url)
         
-        # Extrai o hash da URL (ex: '9300128ea653220849639311528eefc2')
-        match = re.search(r'/imagens/([a-f0-9]+)/', url_primeira_imagem)
+        urls_unicas = natsorted(list(set(urls_encontradas)))
+
+        if not urls_unicas:
+            print("  [!] Nenhuma URL de imagem foi capturada nos logs de rede. Tentativa de adivinhação cega falhou.")
+            return 0, 1
+
+        # Extrai a "fórmula" da URL a partir da primeira imagem encontrada
+        primeira_url = urls_unicas[0]
+        match = re.search(r'(https://sakuramangas\.org/imagens/[a-f0-9]+/)((\d+)\.\w+)', primeira_url)
         if not match:
-            print("  [!] Não foi possível extrair o hash da URL da imagem. O padrão pode ter mudado.")
+            print("  [!] Não foi possível analisar a estrutura da URL da imagem a partir dos logs.")
             return 0, 1
             
-        image_hash = match.group(1)
-        print(f"    -> Hash do capítulo encontrado: {image_hash}")
-        
+        base_url_com_hash = match.group(1)
+        nome_arquivo_exemplo = match.group(2)
+        numero_exemplo = match.group(3)
+        extensao = os.path.splitext(nome_arquivo_exemplo)[1]
+        padding = len(numero_exemplo) # Detecta o número de zeros (ex: 3 para '001')
+
+        print(f"  Estrutura da URL detectada. Iniciando download com adivinhação sequencial...")
+
         images_downloaded = 0
         consecutive_failures = 0
         page_index = 1
 
-        print(f"  Iniciando download sequencial para o capítulo {chapter_number}...")
         while consecutive_failures < 3: # Para após 3 falhas seguidas
-            # Monta a URL (ex: https://sakuramangas.org/imagens/HASH/001.jpg)
-            page_number_str = str(page_index).zfill(3)
-            img_url = f"https://sakuramangas.org/imagens/{image_hash}/{page_number_str}.jpg"
+            # Monta a URL da imagem a ser adivinhada
+            page_number_str = str(page_index).zfill(padding)
+            img_url = f"{base_url_com_hash}{page_number_str}{extensao}"
             
-            filename = f"{str(page_index).zfill(3)}.jpg"
+            filename = f"{page_number_str}{extensao}"
             filepath = os.path.join(chapter_path, filename)
             
-            # Tenta baixar a imagem
-            success = download_image_with_session(driver, img_url, filepath)
+            # Tenta baixar a imagem com o método Selenium
+            success = download_image_with_selenium(driver, img_url, filepath)
             
             if success:
                 images_downloaded += 1
                 consecutive_failures = 0 # Reseta o contador de falhas
             else:
                 consecutive_failures += 1
-            
-            page_index += 1
-            time.sleep(0.2) # Pequena pausa para não sobrecarregar o servidor
+                print(f"    -> Falha ao encontrar a imagem {page_index}. Tentativas restantes: {3 - consecutive_failures}")
 
-        if images_downloaded == 0:
-            print(f"  [!] Nenhuma imagem foi encontrada para o capítulo {chapter_number} com este método.")
-            return 0, 1
+            page_index += 1
+            time.sleep(0.1)
 
         total_images = images_downloaded
-        print(f"\n  Capítulo {chapter_number}: {images_downloaded}/{total_images} imagens baixadas com sucesso.")
-        return images_downloaded, 0
+        if total_images > 0:
+             print(f"\\n  Capítulo {chapter_number}: {images_downloaded}/{total_images} imagens baixadas com sucesso.")
+             return images_downloaded, 0
+        else:
+            print(f"\\n  [!] Nenhuma imagem pôde ser baixada para o capítulo {chapter_number}.")
+            return 0, 1
+
 
     except Exception as e:
         print(f"  Ocorreu um erro geral ao processar o capítulo {chapter_number}: {e}")

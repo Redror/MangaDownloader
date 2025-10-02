@@ -9,6 +9,9 @@ def setup_selenium_driver(run_headless=True):
     
     options = uc.ChromeOptions()
     
+    logging_prefs = {'performance': 'ALL'}
+    options.set_capability('goog:loggingPrefs', logging_prefs)
+    
     if run_headless:
         print(" -> Rodando em modo Headless (invisível).")
         options.add_argument('--headless')
