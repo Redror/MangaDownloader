@@ -25,6 +25,7 @@ def setup_selenium_driver(run_headless=True):
         driver = uc.Chrome(options=options, use_subprocess=True)
         
         if not run_headless:
+            driver.minimize_window()
             print("    -> Janela do navegador foi minimizada.")
         
         # Script para burlar detecções de bot mais avançadas

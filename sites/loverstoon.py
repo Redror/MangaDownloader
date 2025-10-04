@@ -22,34 +22,12 @@ def obter_dados_obra_loverstoon(obra_url, driver):
         obra_nome = titulo_element.text.strip()
         print(f"    -> Título encontrado: '{obra_nome}'")
         driver.maximize_window()
-
-        # 2. Rola a página para baixo até que o contêiner de capítulos seja encontrado
-        seletor_container_caps = 'ul.version-chap'
-        print("    -> Rolando a página para encontrar a área dos capítulos...")
-        max_scroll_attempts = 10
-        found_container = False
-        for attempt in range(max_scroll_attempts):
-            try:
-                # Verifica se o elemento está presente sem esperar muito
-                driver.find_element(By.CSS_SELECTOR, seletor_container_caps)
-                print("    -> Contêiner de capítulos encontrado.")
-                found_container = True
-                break
-            except:
-                # Se não encontrou, rola a página para baixo
-                driver.execute_script("window.scrollBy(0, 200);")
-                time.sleep(1) # Pequena pausa para o conteúdo carregar
         
-        if not found_container:
-            print(f"!!! ERRO: O contêiner de capítulos ('{seletor_container_caps}') não foi encontrado após rolar a página.")
-            return obra_nome, []
-
-        # 3. Garante que o contêiner esteja visível e aguarda
-        container_element = WebDriverWait(driver, 10).until(
+        # 2. Rola a página para baixo até que o contêiner de capítulos seja encontrado
+        seletor_container_caps = 'div.listing-chapters_wrap ul.version-chap'
+        container_element = WebDriverWait(driver, 30).until(
             EC.visibility_of_element_located((By.CSS_SELECTOR, seletor_container_caps))
         )
-        driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", container_element)
-        time.sleep(2)
 
         # 4. Lógica para clicar no botão 'Show more' específico dos capítulos (apenas uma vez)
         seletor_show_more_caps = 'span.chapter-readmore' 
