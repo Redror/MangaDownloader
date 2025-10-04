@@ -94,11 +94,11 @@ def baixar_capitulo_sussy_api(chapter_info, scraper_session, base_path):
                         continue
 
                     # LÓGICA DE MONTAGEM DE URL CORRIGIDA
-                    if img_src.startswith('/'):
-                        # FORMATO ANTIGO CORRIGIDO
-                        img_url = f"https://cdn.sussytoons.site/wp-content/uploads/WP-manga/data{img_src}"
+                    if '/' in img_src and 'manga_' in img_src:
+                        # Formato antigo: o src contém o caminho completo
+                        img_url = f"https://cdn.sussytoons.site/wp-content/uploads/WP-manga/data/{img_src}"
                     else:
-                        # FORMATO NOVO
+                        # Formato novo: o src é apenas o nome do arquivo, o path contém o resto
                         base_url = "https://cdn.sussytoons.site"
                         clean_path = img_path.strip('/')
                         img_url = f"{base_url}/{clean_path}/{img_src}"
